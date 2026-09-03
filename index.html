@@ -21,6 +21,8 @@
     .prompt { font-family:Georgia,"Times New Roman",serif; font-size:clamp(24px,4vw,37px); line-height:1.46; letter-spacing:.005em; margin:11px 0 32px; max-width:900px; }
     .prompt .blank { display:inline-block; min-width:90px; border-bottom:3px solid var(--brand); color:transparent; margin:0 3px; vertical-align:baseline; }
     .answer-area { display:flex; gap:10px; align-items:stretch; max-width:650px; }
+    .answer-area.multi { flex-wrap:wrap; max-width:820px; }
+    .answer-area.multi input { flex:1 1 220px; }
     input { min-width:0; flex:1; border:2px solid #dbd7ee; border-radius:13px; padding:14px 16px; color:var(--ink); background:white; outline:none; font-size:18px; transition:.2s; }
     input:focus { border-color:var(--brand); box-shadow:0 0 0 4px #eae7ff; }
     button { cursor:pointer; border:0; border-radius:13px; padding:0 19px; color:#fff; font-size:15px; font-weight:700; background:var(--brand); transition:transform .15s,filter .15s; }
@@ -48,7 +50,7 @@
 <body>
   <main class="shell">
     <header>
-      <div><h1>背诵小练习</h1><p>看提示，写答案。每一个下划线都是一道题。</p></div>
+      <div><h1>背诵小练习</h1><p>看提示，写答案。每一条编号内容都是一道题。</p></div>
       <p id="score">答对 0 / 0</p>
     </header>
     <section class="card study" aria-live="polite">
@@ -59,7 +61,7 @@
       <details>
         <summary>替换学习文本</summary>
         <div class="edit-body">
-          <p class="hint">用两个下划线包住需要背诵的内容，例如 <code>65 - von __Studenten__</code>。一行可以有多个填空；每个填空都会成为一道题。修改后点击“加载新文本”。</p>
+          <p class="hint">用两个下划线包住需要背诵的内容，例如 <code>65 - von __Studenten__</code>。每一行是一道题；一行有多个填空时，需要全部填写。修改后点击“加载新文本”。</p>
           <textarea id="source" aria-label="学习文本"></textarea>
           <button class="save" id="load">加载新文本</button>
         </div>
@@ -99,13 +101,17 @@ Kaum __Rezensionen__ zu diesen Titeln (sind daher nicht bekannt)
       const result = [];
       const lines = text.split(/\r?\n/);
       lines.forEach((line, lineIndex) => {
-        let found, targetIndex = 0, regex = /__([^_][\s\S]*?)__/g;
+        let found, cursor = 0, regex = /__([^_][\s\S]*?)__/g;
+        const answers = [], parts = [];
         while ((found = regex.exec(line))) {
-          const before = line.slice(0, found.index).replace(/__([^_][\s\S]*?)__/g, '____');
-          const after = line.slice(found.index + found[0].length).replace(/__([^_][\s\S]*?)__/g, '____');
-          const previous = lines.slice(0, lineIndex).reverse().find(item => item.trim()) || '';
-          result.push({ answer:found[1].trim(), before, after, previous, number:++targetIndex, lineIndex });
+          parts.push(line.slice(cursor, found.index));
+          answers.push(found[1].trim());
+          cursor = found.index + found[0].length;
         }
+        if (!answers.length) return;
+        parts.push(line.slice(cursor));
+        const previous = lines.slice(0, lineIndex).reverse().find(item => item.trim()) || '';
+        result.push({ answers, parts, previous, lineIndex });
       });
       return result;
     }
@@ -115,22 +121,25 @@ Kaum __Rezensionen__ zu diesen Titeln (sind daher nicht bekannt)
       counter.textContent = `第 ${current + 1} 题，共 ${questions.length} 题`;
       score.textContent = `答对 ${correct} / ${questions.length}`;
       progress.style.width = `${(current / questions.length) * 100}%`;
-      exercise.innerHTML = `<div class="tag">前文提示</div><div class="prompt">${q.previous ? `<small style="display:block;font:600 15px/1.5 system-ui;color:#69758a;letter-spacing:0;margin-bottom:12px">${escapeHtml(q.previous.replace(/__([^_][\s\S]*?)__/g, '____'))}</small>` : ''}${escapeHtml(q.before)}<span class="blank">${'　'.repeat(Math.max(3,Math.min(12,q.answer.length)))}</span></div><div class="answer-area"><input id="answer" autocomplete="off" placeholder="在这里输入答案…" /><button id="check">检查答案</button></div><div class="feedback" id="feedback"></div><div class="feedback" id="revealedAnswer" hidden></div><div class="actions"><button class="secondary" id="prev" ${current === 0 ? 'disabled' : ''}>← 上一题</button><button class="secondary" id="reveal">显示答案</button><button class="next" id="next">${current === questions.length - 1 ? '重新开始' : '下一题 →'}</button></div>`;
-      const input = document.querySelector('#answer'); input.focus();
-      document.querySelector('#check').onclick = () => check(input.value);
-      input.onkeydown = e => { if(e.key === 'Enter') check(input.value); };
+      const questionText = q.parts.map((part, index) => `${escapeHtml(part)}${index < q.answers.length ? `<span class="blank">${'　'.repeat(Math.max(3,Math.min(12,q.answers[index].length)))}</span>` : ''}`).join('');
+      const inputs = q.answers.map((answer, index) => `<input class="answer" autocomplete="off" placeholder="填空 ${index + 1}" />`).join('');
+      exercise.innerHTML = `<div class="tag">前文提示</div><div class="prompt">${q.previous ? `<small style="display:block;font:600 15px/1.5 system-ui;color:#69758a;letter-spacing:0;margin-bottom:12px">${escapeHtml(q.previous.replace(/__([^_][\s\S]*?)__/g, '____'))}</small>` : ''}${questionText}</div><div class="answer-area multi">${inputs}<button id="check">检查答案</button></div><div class="feedback" id="feedback"></div><div class="feedback" id="revealedAnswer" hidden></div><div class="actions"><button class="secondary" id="prev" ${current === 0 ? 'disabled' : ''}>← 上一题</button><button class="secondary" id="reveal">显示答案</button><button class="next" id="next">${current === questions.length - 1 ? '重新开始' : '下一题 →'}</button></div>`;
+      const answerInputs = [...document.querySelectorAll('.answer')]; answerInputs[0].focus();
+      document.querySelector('#check').onclick = check;
+      answerInputs.forEach(input => input.onkeydown = e => { if(e.key === 'Enter') check(); });
       document.querySelector('#reveal').onclick = () => {
         answerVisible = !answerVisible;
         const revealed = document.querySelector('#revealedAnswer');
         revealed.hidden = !answerVisible;
-        revealed.innerHTML = answerVisible ? `<span class="bad">答案：${escapeHtml(q.answer)}</span>` : '';
+        revealed.innerHTML = answerVisible ? `<span class="bad">答案：${q.answers.map((answer, index) => `填空 ${index + 1}：${escapeHtml(answer)}`).join('；')}</span>` : '';
         document.querySelector('#reveal').textContent = answerVisible ? '隐藏答案' : '显示答案';
       };
       document.querySelector('#prev').onclick = previous;
       document.querySelector('#next').onclick = next;
     }
-    function check(value) {
-      const ok = clean(value) === clean(questions[current].answer);
+    function check() {
+      const values = [...document.querySelectorAll('.answer')].map(input => input.value);
+      const ok = questions[current].answers.every((answer, index) => clean(values[index]) === clean(answer));
       if (ok && results[current] !== true) correct++;
       if (!ok && results[current] === true) correct--;
       results[current] = ok;
