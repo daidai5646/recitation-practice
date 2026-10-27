@@ -65,10 +65,10 @@
     </section>
     <section class="card quick-create" aria-labelledby="quick-title">
       <h2 id="quick-title">粘贴文本，自动挖空</h2>
-      <p class="hint">按数字、引号内容、德语名词/专有名词和较长关键词等线索，在本地挑选重点；每个自然段生成一道题，可能包含多个空。原文不会上传。</p>
+      <p class="hint">保留每行第一个冒号及前面的提示，只从冒号后的文字随机挖空；每行生成一道题。原文只在浏览器本地处理，不会上传。</p>
       <label for="plain-text" class="hint">原文</label>
       <textarea id="plain-text" aria-label="粘贴需要挖空的原文" placeholder="在这里粘贴文本……"></textarea>
-      <button class="save" id="generate">本地关键词挖空并加载题目</button>
+      <button class="save" id="generate">随机挖空并加载题目</button>
       <span class="generator-status" id="generator-status" role="status" aria-live="polite"></span>
     </section>
     <section class="card editor">
@@ -129,73 +129,38 @@ Kaum __Rezensionen__ zu diesen Titeln (sind daher nicht bekannt)
       });
       return result;
     }
-    function selectBlanks(text) {
-      const candidates = [];
-      const fillers = new Set('der die das den dem des ein eine einen einem einer und oder aber wenn weil dass zu von mit für als auf in im am an aus bei nach über unter durch gegen seit um vor zwischen ist sind war waren wird werden sein haben hatte hat kann können muss müssen soll sollen nicht auch noch nur sehr mehr weniger man es sie er wir ihr ich wer was wie warum wo damit dadurch darin dabei darüber hierzu dort dann so als ob welcher welche welches dieser diese dieses jene jener sich selbst schon erst immer oft jedoch daher außerdem zum zur vom beim ins ans aufs who what which where and the a an is are was were be been being have has had do does did can could will would shall should may might must not no nor yet so than too very in on at to for of with by from as into about between before after above below under'.split(/\s+/u));
-      function add(start, end, score) {
-        if (end <= start) return;
-        candidates.push({ start, end, score });
+    function randomBlanks(text) {
+      const tokens = [...text.matchAll(/[\p{L}\p{N}]+(?:['’\-–][\p{L}\p{N}]+)*/gu)];
+      if (!tokens.length) return '';
+      const count = Math.max(1, Math.min(5, Math.ceil(tokens.length / 10)));
+      const shuffled = tokens.slice();
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
-      for (const match of text.matchAll(/["„“«]([^"„“”»]{2,80})["“”»]/gu)) {
-        const offset = match.index + match[0].indexOf(match[1]);
-        add(offset, offset + match[1].length, 13 + Math.min(4, match[1].length / 20));
-      }
-      for (const match of text.matchAll(/\d+(?:[.,]\d+)*(?:\s?(?:%|€|Jahre?|Jahren))?/gu)) {
-        add(match.index, match.index + match[0].length, 12);
-      }
-      const tokens = [...text.matchAll(/[\p{L}][\p{L}'’\-–]*/gu)];
-      tokens.forEach((token, index) => {
-        const word = token[0], lower = word.toLocaleLowerCase();
-        if (word.length < 4 || fillers.has(lower)) return;
-        if (/^[A-ZÄÖÜ]/u.test(word)) {
-          let start = token.index, phraseWords = 1;
-          for (let back = index - 1; back >= 0 && phraseWords < 3; back--) {
-            const previous = tokens[back], gap = text.slice(previous.index + previous[0].length, start);
-            if (/[.!?。！？;；\n]/u.test(gap) || fillers.has(previous[0].toLocaleLowerCase())) break;
-            if (previous[0].length < 3) break;
-            start = previous.index;
-            phraseWords++;
-          }
-          const before = text.slice(0, token.index);
-          const sentenceStart = !before.trim() || /[.!?。！？]\s*$/u.test(before);
-          const score = 5 + Math.min(3, word.length / 5) + (phraseWords - 1) * 1.5 + (sentenceStart ? -1.5 : 1.5);
-          add(start, token.index + word.length, score);
-        } else if (word.length >= 7) {
-          add(token.index, token.index + word.length, 2 + Math.min(3, word.length / 5));
-        } else if (word.length >= 5) {
-          add(token.index, token.index + word.length, 1 + word.length / 10);
-        }
-      });
-      if (!candidates.length) return '';
-      const wordCount = tokens.length;
-      const maxBlanks = Math.max(1, Math.min(5, Math.ceil(wordCount / 14)));
-      const selected = [];
-      candidates.sort((a, b) => b.score - a.score || (b.end - b.start) - (a.end - a.start));
-      for (const candidate of candidates) {
-        if (selected.some(item => candidate.start < item.end && candidate.end > item.start)) continue;
-        selected.push(candidate);
-        if (selected.length >= maxBlanks) break;
-      }
-      selected.sort((a, b) => a.start - b.start);
+      const selected = shuffled.slice(0, count).sort((a, b) => a.index - b.index);
       let output = '', cursor = 0;
-      for (const item of selected) {
-        output += text.slice(cursor, item.start) + '__' + text.slice(item.start, item.end) + '__';
-        cursor = item.end;
+      for (const token of selected) {
+        output += text.slice(cursor, token.index) + '__' + token[0] + '__';
+        cursor = token.index + token[0].length;
       }
       return output + text.slice(cursor);
     }
     function formatPlainText(text) {
       let number = 0;
-      return text.trim().split(/\n\s*\n/).map(paragraph => {
-        const plain = paragraph.split(/\r?\n/).map(line => line.trim().replace(/^\d+\s*[-.)、:：]\s*/, '').replace(/__/g, '')).filter(Boolean).join(' ');
+      return text.split(/\r?\n/).map(line => {
+        const plain = line.trim().replace(/^\d+\s*[-.)、]\s*/, '').replace(/__/g, '');
         if (!plain) return '';
-        const question = selectBlanks(plain);
-        if (!question) return '';
+        const colon = plain.search(/[:：]/u);
+        if (colon < 0) return '';
+        const prompt = plain.slice(0, colon + 1);
+        const answer = randomBlanks(plain.slice(colon + 1));
+        if (!answer) return '';
         number++;
-        return number + ' - ' + question;
-      }).filter(Boolean).join('\n\n');
+        return number + ' - ' + prompt + answer;
+      }).filter(Boolean).join('\n');
     }
-    function render() {
+        function render() {
       if (!questions.length) { exercise.innerHTML='<p class="empty">还没有找到填空。请在文本中用两个下划线标记需要背诵的内容。</p>'; counter.textContent='没有题目'; score.textContent='答对 0 / 0'; progress.style.width='0%'; return; }
       const q = questions[current];
       counter.textContent = `第 ${current + 1} 题，共 ${questions.length} 题`;
@@ -235,12 +200,12 @@ Kaum __Rezensionen__ zu diesen Titeln (sind daher nicht bekannt)
       const formatted = formatPlainText(rawText);
       const status = document.querySelector('#generator-status');
       if (!rawText.trim()) { status.textContent = '请先粘贴需要挖空的文本。'; return; }
-      if (!formatted) { status.textContent = '没有找到可挖空的重点词，请换一段内容试试。'; return; }
+      if (!formatted) { status.textContent = '没有找到可挖空的内容。请确保每行有冒号（如“提示：内容”），且冒号后包含文字。'; return; }
       source.value = formatted;
       localStorage.setItem('recite-source', formatted);
       questions = parse(formatted); current = 0; correct = 0; results = []; answerVisible = false;
       render();
-      status.textContent = `已生成 ${questions.length} 道题。可在下方“替换学习文本”中编辑题目格式。`;
+      status.textContent = `已生成 ${questions.length} 道随机填空题。可在下方“替换学习文本”中编辑题目格式。`;
       document.querySelector('.study').scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
     questions=parse(source.value); render();
