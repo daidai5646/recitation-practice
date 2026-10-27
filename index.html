@@ -32,6 +32,11 @@
     .actions { display:flex; gap:12px; margin-top:auto; padding-top:30px; }
     .secondary { background:#eeeafc; color:#5042a8; padding:12px 15px; }
     .next { margin-left:auto; padding:12px 19px; }
+    .quick-create { margin-top:22px; padding:22px 24px 24px; }
+    .quick-create h2 { margin:0; font-size:19px; letter-spacing:-.02em; }
+    .quick-create textarea { margin-top:8px; min-height:165px; }
+    .quick-create .save { min-height:44px; padding:0 18px; }
+    .generator-status { display:inline-block; margin-left:12px; color:var(--muted); font-size:14px; }
     .editor { margin-top:22px; overflow:hidden; }
     details summary { list-style:none; cursor:pointer; padding:19px 24px; font-weight:700; display:flex; justify-content:space-between; }
     details summary::-webkit-details-marker { display:none; }
@@ -56,6 +61,14 @@
     <section class="card study" aria-live="polite">
       <div class="progress-row"><span id="counter">准备开始</span><div class="bar"><i id="progress"></i></div></div>
       <div id="exercise"></div>
+    </section>
+    <section class="card quick-create" aria-labelledby="quick-title">
+      <h2 id="quick-title">粘贴文本，自动挖空</h2>
+      <p class="hint">粘贴普通文本后，按句号、问号或感叹号拆分；每句会自动编号并整句挖空。生成后可在下方题库编辑区查看或修改。</p>
+      <label for="plain-text" class="hint">原文</label>
+      <textarea id="plain-text" aria-label="粘贴需要挖空的原文" placeholder="在这里粘贴文本……"></textarea>
+      <button class="save" id="generate">自动挖空并加载题目</button>
+      <span class="generator-status" id="generator-status" role="status" aria-live="polite"></span>
     </section>
     <section class="card editor">
       <details>
@@ -115,6 +128,18 @@ Kaum __Rezensionen__ zu diesen Titeln (sind daher nicht bekannt)
       });
       return result;
     }
+    function formatPlainText(text) {
+      let number = 0;
+      return text.trim().split(/\n\s*\n/).map(block => {
+        const sentences = block.split(/\r?\n/).flatMap(line => line.match(/[^。！？.!?]+[。！？.!?]*/gu) || []);
+        return sentences.map(sentence => {
+          const plain = sentence.replace(/^\s*\d+\s*[-.)、:：]\s*/, '').replace(/__/g, '').trim();
+          if (!plain) return '';
+          number++;
+          return `${number} - __${plain}__`;
+        }).filter(Boolean).join('\n');
+      }).filter(Boolean).join('\n\n');
+    }
     function render() {
       if (!questions.length) { exercise.innerHTML='<p class="empty">还没有找到填空。请在文本中用两个下划线标记需要背诵的内容。</p>'; counter.textContent='没有题目'; score.textContent='答对 0 / 0'; progress.style.width='0%'; return; }
       const q = questions[current];
@@ -150,6 +175,17 @@ Kaum __Rezensionen__ zu diesen Titeln (sind daher nicht bekannt)
     function next() { if (current === questions.length - 1) { current=0; correct=0; results=[]; } else current++; answerVisible=false; render(); }
     function escapeHtml(str) { return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     document.querySelector('#load').onclick = () => { localStorage.setItem('recite-source', source.value); questions=parse(source.value); current=0;correct=0;results=[];answerVisible=false;render(); document.querySelector('details').open=false; };
+    document.querySelector('#generate').onclick = () => {
+      const formatted = formatPlainText(document.querySelector('#plain-text').value);
+      const status = document.querySelector('#generator-status');
+      if (!formatted) { status.textContent = '请先粘贴需要挖空的文本。'; return; }
+      source.value = formatted;
+      localStorage.setItem('recite-source', formatted);
+      questions = parse(formatted); current = 0; correct = 0; results = []; answerVisible = false;
+      render();
+      status.textContent = `已生成 ${questions.length} 道题。可在下方“替换学习文本”中编辑题目格式。`;
+      document.querySelector('.study').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
     questions=parse(source.value); render();
   </script>
 </body>
